@@ -1,0 +1,31 @@
+
+1)Experimental design:
+Intron Retention: Embrio, Adult Stem Cells, Entero, Paneth. From these 4 samples we mapped the intron retained and in the "Intron Retention Bed Files" you have the files.
+Chromatin: H3K27Ac and H3K4me3 in Embrio, Adult Stem Cells, Entero, Paneth. From these 4 samples we have significant peaks in the "Chromatin" folder. 
+
+
+2)Sum up of the folders:
+Intron retention bed files" for each cell type there are the intron that retained at a level that is significant. There is also a folder "Intron retention annotated" with the coordinate of all the introns that are annotated in the mm10 mouse model (this is your "all space"). 
+
+In Chromatin folder:
+K4me3_peaks folder= file K4me3_called_peaks.xlsx has the significan peaks that belong to enterocites rep1 and enterocites rep2, e125 rep1 e125 rep2, e145 rep1 e145 rep2 (these 2 you do not need!! because we have intron retantion data only from e125), Intestinal Stem Cells rep1, Intestianl Stem Cells rep2. In file H3K4me3_Paneth.xlsx you have significant events of Paneth cells rep1 and Paneth cells rep2.
+
+K27ac_peaks = file adultk27ac.xlsx you have peaks of Instestinal Stem Cells Rep1 and Intestinal Stem Cells rep2. In embryonicK27ac.xlsx you have peaks for embryo rep1 and embrio rep2. In K27Ac_Paneth.xls you have Paneth Rep1 and Paneth Rep2. 
+
+
+3) Remember:
+the coordinate of the Chromatin Marks have to be converted with liftover from mm9 to mm10 as the intron retantion are in mm10. Then if there is something interesting that
+we have to visualize we re-run the chip-seq data with the mm10 annotation. 
+
+
+4) Already did but to be re-done:
+I just did intron retention in chromatin marks for H3K27ac and only embrio shows overlap and a significant value with the chisquare test. Do it again and then we can compare
+the results. I did not do anything with H3K4me3
+
+
+
+
+
+
+
+
