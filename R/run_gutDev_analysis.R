@@ -8,10 +8,12 @@ require(rtracklayer)
 require(ggplot2)
 require(BSgenome.Mmusculus.UCSC.mm9) # for proper seqinfo object
 require(RColorBrewer)
+require(plyr)
 
 COL_CELL_TYPE=brewer.pal(8, "Pastel1")
-#COL_CELL_TYPE=brewer.pal(8, "Set1")
 COL_ALL=brewer.pal(8, "Dark2")[8]
+
+CELL_TYPE_LEVELS <- c("e125", "ISC", "Paneth", "enterocyte")
 
 VERSION="v02"
 
@@ -30,14 +32,18 @@ intronsDesign <- "data/retained_intron_design.csv"
 allIntronFiles <- "data/Intron_Retention_bed_files/Intron_Retention_Annotated/intron_retained_in_all_genome_direction_annotated_miso_ordered.bed.mm10.BED.mm9"
 
 # read metadata of marks
-chromMarksFiles <- read.table(chromMarksDesign, header=TRUE)
+chromMarkFiles <- read.table(chromMarksDesign, header=TRUE)
+# take only a subest with existing RNA-seq data
+chromMarkFiles <- subset(chromMarkFiles, cell_type %in% CELL_TYPE_LEVELS)
+chromMarkFiles$cell_type <- factor(chromMarkFiles$cell_type, levels=CELL_TYPE_LEVELS)
 
 # use only replicate 1
-#chromMarksFiles <- subset(chromMarksFiles, replicate==1)
+#chromMarkFiles <- subset(chromMarkFiles, replicate==1)
 
 # read metadata of introns
 intronFiles <- read.table(intronsDesign, header=TRUE)
 intronFiles <- intronFiles[!is.na(intronFiles$file),]
+intronFiles$cell_type <- factor(intronFiles$cell_type, levels=CELL_TYPE_LEVELS)
 # remove e145 
 
 outPrefix <- paste0("results/", VERSION, "_GutDev")
@@ -50,7 +56,7 @@ genome <- BSgenome.Mmusculus.UCSC.mm9
 seqInfo <- seqinfo(genome)
 
 # parse chromatin mark peaks as GenomicRanges objects
-markGRL <- lapply(chromMarksFiles$file, function(f){
+markGRL <- lapply(chromMarkFiles$file, function(f){
 	if(is.na(f)){
 		GRanges()
 	}else{
@@ -110,6 +116,55 @@ g +  scale_y_log10()
 ggsave(paste0(outPrefix, ".intron_sizes.boxplot_log10.pdf"))
 
 #-----------------------------------------------------------------------
+# Plot number of retained introns per cell and across replicates
+#-----------------------------------------------------------------------
+intronFiles$n <- sapply(intronGRL, length)
+
+g <- ggplot(intronFiles, aes(x=intron_replicate, y=n, fill=cell_type)) + 
+  geom_bar(stat="identity", color="black") + 
+  geom_text(aes(label=n), vjust=-1.25) + 
+  facet_grid(~cell_type) + 
+  theme_bw() + scale_fill_manual(values=COL_CELL_TYPE) + 
+  xlab("RNA-seq replicates") + ylab("Retained Introns")
+
+ggsave(paste0(outPrefix, ".retained_introns.barplot.pdf"))
+
+#-----------------------------------------------------------------------
+# Plot number and size distribution of chromatin mark peaks
+#-----------------------------------------------------------------------
+
+# create a data.frame with all chrmatin peaks
+peakDF <- do.call("rbind", lapply(1:nrow(chromMarkFiles), function(i){
+  data.frame(chromMarkFiles[rep(i, length(markGRL[[i]])),], width=width(markGRL[[i]]))
+}))
+
+# reformat as factor with order
+peakDF$cell_type = factor(peakDF$cell_type, c("e125", "e145", "ISC", "Paneth",  "enterocyte", "ae"))
+peakDF$mark = factor(peakDF$mark, c("k4me3", "k27ac"))
+
+# count peaks per condition
+countPeakDF <- ddply(peakDF, c("mark", "cell_type", "replicate"), summarise, 
+                     count=length(width))
+
+# plot number of peaks
+g <- ggplot(countPeakDF, aes(x=replicate, y=count, fill=cell_type)) + 
+  geom_bar(stat="identity", color="black") + 
+  geom_text(aes(label=count), hjust=-1.25, angle=90) + 
+  facet_grid(mark~cell_type) + 
+  theme_bw() + scale_fill_manual(values=COL_CELL_TYPE) + 
+  xlab("ChIP-seq replicates") + ylab("Number of chromatin mark peaks")
+
+ggsave(paste0(outPrefix, ".mark_peaks.barplot.pdf"))
+
+# plot length distribution of chromatin marks
+g <- ggplot(peakDF, aes(x=as.factor(replicate), y=width, fill=cell_type)) + 
+  geom_boxplot() + scale_y_log10() +
+  facet_grid(mark~cell_type, scales="free_x") +
+  theme_bw() + scale_fill_manual(values=COL_CELL_TYPE) + 
+  xlab("ChIP-seq replicates") + ylab("Chromatin mark peaks size [bp]")
+ggsave(paste0(outPrefix, ".mark_peak.size.boxplot.pdf"))  
+  
+#-----------------------------------------------------------------------
 # calculate overlaps
 #-----------------------------------------------------------------------
 
@@ -117,7 +172,7 @@ ggsave(paste0(outPrefix, ".intron_sizes.boxplot_log10.pdf"))
 allDF <- data.frame()
 
 # iterate over chrom mark types
-for (MARK in as.character(unique(chromMarksFiles$mark))){
+for (MARK in as.character(unique(chromMarkFiles$mark))){
 	
 	# iteratre over cell types
 	for (CELL_TYPE in as.character(unique(intronFiles$cell_type))){
@@ -128,11 +183,11 @@ for (MARK in as.character(unique(chromMarksFiles$mark))){
 			i <- which(intronFiles$cell_type == CELL_TYPE & intronFiles$intron_replicate == INTRON_REP)
 			
 			# iterate chrom-mark ChIP-seq replicates
-			for (MARK_REP in unique(chromMarksFiles$replicate)) {
+			for (MARK_REP in unique(chromMarkFiles$replicate)) {
 
-				m <- which(chromMarksFiles$mark == MARK 
-					& chromMarksFiles$cell_type == CELL_TYPE
-					& chromMarksFiles$replicate == MARK_REP)
+				m <- which(chromMarkFiles$mark == MARK 
+					& chromMarkFiles$cell_type == CELL_TYPE
+					& chromMarkFiles$replicate == MARK_REP)
 				
 				# debug message
 				message(paste(MARK, CELL_TYPE, INTRON_REP, MARK_REP, i, m))
@@ -175,27 +230,9 @@ for (MARK in as.character(unique(chromMarksFiles$mark))){
 				allDF <- rbind(allDF, row2)
 				
 			}
-
-#~ 				intronFiles[i, paste0("retained_", MARK, "_n")] <- sum(ol)
-#~ 				intronFiles[i, paste0("retained_", MARK, "_Percent")] <- 100* sum(ol) /length(ol)
-		
-#~ 				intronFiles[i, paste0("all_", MARK, "_n")] <- sum(olAll)
-#~ 				intronFiles[i, paste0("all_", MARK, "_Percent")] <- 100* sum(olAll) /length(olAll)
-
 		}
-		
-#~ 		df <- mcols(intronGRL[[i]])
-#~ 		df[,CELL_TYPE] <- ol
-#~ 		mcols(intronGRL[[i]])[, CELL_TYPE] <- ol
-		
 	}
 }
-
-
-#~ plotDF <- intronFiles[rep(1:nrow(intronFiles), 2),1:3]
-#~ plotDF$count <- c(intronFiles[,paste0("retained_", MARK, "_n")], intronFiles[,paste0("all_", MARK, "_n")])
-#~ plotDF$percent <- c(intronFiles[,paste0("retained_", MARK, "_Percent")], intronFiles[,paste0("all_", MARK, "_Percent")])
-#~ plotDF$group <- rep(c("retained", "all"), each=nrow(intronFiles))
 
 
 # reformat as factor with order
@@ -203,7 +240,6 @@ allDF$cell_type = factor(allDF$cell_type, c("e125", "e145", "ISC", "Paneth",  "e
 allDF$mark = factor(allDF$mark, c("k4me3", "k27ac"))
 
 
-require(plyr)
 
 # Run the functions length, mean, and sd on the value of "change" for each group, 
 # broken down by sex + condition
@@ -238,7 +274,6 @@ g <- ggplot(cdata, aes(x=group, y=mean, fill=cell_type)) +
 	geom_bar(stat="identity", color="black") + 
 	geom_errorbar(aes(ymax = mean + sd, ymin=mean - sd), width=0.25) + 
 	geom_text(aes(label=round(mean,1)), vjust=-1.25) + 
-#~ 	geom_text(aes(label=paste("n=",round(mean,1)), y=0), angle=90) + 
 	ylim(0,1.2*max(cdata$mean, na.rm=TRUE)) +
 	facet_grid(mark*mark_replicate~cell_type) + 
 	theme_bw() + scale_fill_manual(values=COL_CELL_TYPE) + 
