@@ -15,7 +15,7 @@ COL_ALL=brewer.pal(8, "Dark2")[8]
 
 CELL_TYPE_LEVELS <- c("e125", "ISC", "Paneth", "enterocyte")
 
-VERSION="v02"
+VERSION="v03"
 
 # design / dimensions
 
