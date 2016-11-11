@@ -65,7 +65,7 @@ design$cell_type <- factor(design$cell_type, levels=CELL_TYPE_LEVELS)
 
 ########################################################################
 # DEBUG: take only exons into account
-design <- design[which(design$type == "exon"),]
+#~ design <- design[which(design$type == "exon"),]
 ########################################################################
 
 # get seqinfo object from annotation package
@@ -278,7 +278,7 @@ for (MARK in MARK_LEVELS){
 
 			# iterate over type (retained intron / skipped exon )
 #~ 			for (REG_TYPE in levels(design$type)) {
-			for (REG_TYPE in c("exon")){
+			for (REG_TYPE in unique(design$type)){
 				
 				# choose index of region
 				i <- which(
@@ -295,7 +295,7 @@ for (MARK in MARK_LEVELS){
 						& chromMarkDesign$replicate == MARK_REP)
 					
 					# debug message
-					message(paste("INFO:", MARK, CELL_TYPE, RNA_REP, MARK_REP, i, m))
+					message(paste("INFO:", MARK, CELL_TYPE, RNA_REP, REG_TYPE, MARK_REP, i, m))
 					
 					# compute overlap with marks
 					ol <- countOverlaps(regGRL[[i]], markGRL[[m]], ignore.strand=TRUE) > 0
@@ -349,185 +349,104 @@ g <- ggplot(allScoreDF, aes(x=factor(mark_overlap, c(TRUE, FALSE), c("overlap", 
 	scale_fill_manual(values=COL_CELL_TYPE) + 
 	xlab("Overlap with mark") + ylab("Score (PSI/PRI)")
 
-ggsave(paste0(outPrefix, ".regions.score_by_overlap.boxplot.pdf"), w=10.5, h=7)
+ggsave(paste0(outPrefix, ".regions.score_by_overlap.boxplot.pdf"), w=14, h=7)
+
+#-----------------------------------------------------------------------
+# plot only introns
+g <- ggplot(subset(allScoreDF, type=="intron"), aes(x=factor(mark_overlap, c(TRUE, FALSE), c("overlap", "no overlap")), y=score, fill=cell_type))+
+	geom_boxplot() + #geom_jitter() +
+	facet_grid(mark*mark_replicate~cell_type*RNAseq_replicate) + 
+	geom_text(data=subset(pvalDF, type=="intron"), aes(x=1.5, y=1.1, label=paste0("p=", signif(pval,3))), size=2) +
+	geom_text(data=subset(sumData, type=="intron"), aes(y=-0.1, label=paste0("n=", N)), size=2) +
+	theme_bw() + theme(text=element_text(size=10), axis.text.x = element_text(angle = 60, hjust = 1)) + 
+	scale_fill_manual(values=COL_CELL_TYPE) + 
+	xlab("Overlap with mark") + ylab("PRI score") + ggtitle("Intron")
+
+ggsave(paste0(outPrefix, ".intron.score_by_overlap.boxplot.pdf"), w=10.5, h=7)
+
+#-----------------------------------------------------------------------
+# plot only exons
+g <- ggplot(subset(allScoreDF, type=="exon"), aes(x=factor(mark_overlap, c(TRUE, FALSE), c("overlap", "no overlap")), y=score, fill=cell_type))+
+	geom_boxplot() + #geom_jitter() +
+	facet_grid(mark*mark_replicate~cell_type*RNAseq_replicate) + 
+	geom_text(data=subset(pvalDF, type=="exon"), aes(x=1.5, y=1.1, label=paste0("p=", signif(pval,3))), size=2) +
+	geom_text(data=subset(sumData, type=="exon"), aes(y=-0.1, label=paste0("n=", N)), size=2) +
+	theme_bw() + theme(text=element_text(size=10), axis.text.x = element_text(angle = 60, hjust = 1)) + 
+	scale_fill_manual(values=COL_CELL_TYPE) + 
+	xlab("Overlap with mark") + ylab("PSI score") + ggtitle("Exons")
+
+ggsave(paste0(outPrefix, ".exons.score_by_overlap.boxplot.pdf"), w=10.5, h=7)
+
+
 
 #-----------------------------------------------------------------------
 # group introns/exons in score by retained/skipped
 #-----------------------------------------------------------------------
-allScoreDF$event <- allScoreDF$score <= SCORE_TH
-allScoreDF$event <- factor(allScoreDF$event, c(TRUE, FALSE), c("excluded", "included"))
+#~ allScoreDF$event <- allScoreDF$score <= SCORE_TH
+allScoreDF$event <- allScoreDF$score <= .15
+allScoreDF$event <- factor(allScoreDF$event, c(TRUE, FALSE), c("skipped", "included"))
 
 # calculate p-values by fisher test on event groups
 pvalDF <- ddply(allScoreDF, c("type", "mark", "mark_replicate", "cell_type", "RNAseq_replicate"), summarise, pval  = fisher.test(event,mark_overlap)$p.value
 )
 
-summaryDF <- ddply(allScoreDF, c("type", "mark", "mark_replicate", "cell_type", "RNAseq_replicate", "event"), summarise, 
-   N    = length(n),
-   mean = mean(n),
-   sd   = sd(n),
-   se   = sd / sqrt(N),
-   percent_mean = mean(percent),
-   percent_sd   = sd(percent),
-   percent_se   = percent_sd / sqrt(N),
-   mean_p = mean(p_val)
+overlapDF <- ddply(allScoreDF, c("type", "mark", "mark_replicate", "cell_type", "RNAseq_replicate", "event"), summarise, 
+   N    = length(mark_overlap),
+   n = sum(mark_overlap),
+   percent   = 100 * n / N
 )
 
 
-
-g <- ggplot(allScoreDF, aes(x=event, y=mark_overlap, fill=cell_type)) + 
-	geom_bar(color="black") + 
-	geom_text(aes(label=signif(percent_mean,3)), vjust=-1.25) + 
-  geom_text(aes(x=1.5, label=ifelse(is.na(mean_p), "", paste0("p=", signif(mean_p,3)))), vjust=-2.5) + 
-  #~ 	geom_text(aes(label=paste("n=",round(mean,1)), y=0), angle=90) + 
-	ylim(0,1.4*max(cdata$percent_mean, na.rm=TRUE)) +
-	facet_grid(mark*mark_replicate~cell_type) + 
-	theme_bw() + scale_fill_manual(values=COL_CELL_TYPE) + 
-	xlab("Introns") + ylab("Introns overlapping chromatin mark [%]")
-	
-ggsave(paste0(outPrefix, ".introns_overlapping_marks.barplot_percent.pdf"))
-
-#----------
-
-
-
-# Run the functions length, mean, and sd on the value of "score" for each group, 
-sumData <- ddply(allScoreDF, c("type", "mark", "mark_replicate", "cell_type", "RNAseq_replicate", "mark_overlap"), summarise,
-   N    = length(score),
-   mean = mean(score),
-   median = median(score),
-   sd   = sd(score),
-   se   = sd / sqrt(N),
-)
-
-
-# calculate p-values
-pvalDF <- ddply(allScoreDF, c("type", "mark", "mark_replicate", "cell_type", "RNAseq_replicate"), summarise, pval  = wilcox.test(score~mark_overlap)$p.value
-)
-
-
-
-#~ # plot length distribution of chromatin marks
-#~ g <- ggplot(peakDF, aes(x=as.factor(replicate), y=width, fill=cell_type)) + 
-#~   geom_boxplot() + scale_y_log10() +
-#~   facet_grid(mark~cell_type, scales="free_x") +
-#~   theme_bw() + scale_fill_manual(values=COL_CELL_TYPE) + 
-#~   xlab("ChIP-seq replicates") + ylab("Chromatin mark peaks size [bp]")
-#~ ggsave(paste0(outPrefix, ".mark_peak.size.boxplot.pdf"))  
-  	
-#~ g <- ggplot(cdata, aes(x=group, y=percent_mean, fill=cell_type)) + 
-#~ 	geom_bar(stat="identity", color="black") + 
-#~ 	geom_errorbar(aes(ymax = percent_mean + percent_sd, ymin=percent_mean - percent_sd), width=0.25) + 
-#~ 	geom_text(aes(label=signif(percent_mean,3)), vjust=-1.25) + 
-#~   geom_text(aes(x=1.5, label=ifelse(is.na(mean_p), "", paste0("p=", signif(mean_p,3)))), vjust=-2.5) + 
-#~   	#geom_text(aes(label=paste("n=",round(mean,1)), y=0), angle=90) + 
+yMax <- max(overlapDF$percent)
+g <- ggplot(overlapDF, aes(x=event, y=percent, fill=cell_type)) + 
+	geom_bar(stat="identity", color="black") + 
+	geom_text(aes(label=signif(percent,3)), vjust=-.75, size=3) + 
+#~ 	geom_text(aes(label=paste("N=", N), y=0), angle=90) + 
+	geom_text(data=pvalDF, aes(x=1.5, y=yMax, label=paste0("p=", signif(pval,3))), size=3, vjust=-2.5) + 
+	ylim(0,2*yMax) +
 #~ 	ylim(0,1.4*max(cdata$percent_mean, na.rm=TRUE)) +
-#~ 	facet_grid(mark*mark_replicate~cell_type) + 
-#~ 	theme_bw() + scale_fill_manual(values=COL_CELL_TYPE) + 
-#~ 	xlab("Introns") + ylab("Introns overlapping chromatin mark [%]")
+	facet_grid(mark*mark_replicate~type*cell_type*RNAseq_replicate) + 
+	theme_bw() + theme(text=element_text(size=9), axis.text.x = element_text(angle = 60, hjust = 1)) + 
+	scale_fill_manual(values=COL_CELL_TYPE) + 
+	xlab("Splicing event groups") + ylab("Overlap with chromatin mark [%]")
 	
-
-					#---------------------------------------------------
-					# split regions in two groups
-					#---------------------------------------------------
-					
-					olAll <- countOverlaps(allReg[[REG_TYPE]], markGRL[[m]], ignore.strand=TRUE) > 0
-					# 
-					#f.test <- fisher.test(ol, olAll)
-					
-					olFactor <- factor(as.character(ol), levels=c("TRUE", "FALSE"))
-					olAllFactor <- factor(as.character(olAll), levels=c("TRUE", "FALSE"))
-	
-					t <- cbind(table(olFactor), table(olAllFactor))
-					ft <- fisher.test(t)
-					p <- ft$p.value
-					
-					# add info to allDF 
-					row1 <- data.frame(
-						mark=MARK, 
-						cell_type=CELL_TYPE, 
-						RNAseq_replicate=RNA_REP, 
-						mark_replicate=MARK_REP, 
-						group="retained",
-						n=sum(ol), 
-						percent=100* sum(ol) / length(ol),
-						p_val=p
-						)
-					row2 <- data.frame(
-						mark=MARK, 
-						cell_type=CELL_TYPE, 
-						RNAseq_replicate=RNA_REP, 
-						mark_replicate=MARK_REP, 
-						group="all",
-						n=sum(olAll), 
-						percent=100* sum(olAll) /length(olAll),
-						p_val=NA
-						)
-	
-					allDF <- rbind(allDF, row1)
-					allDF <- rbind(allDF, row2)					
+ggsave(paste0(outPrefix, ".regions.percent_overlap.barplot_percent.pdf"), w=14, h=7)
 
 
-
-
-
-					#---------------------------------------------------
-					# old stuff
-					#---------------------------------------------------
-					
-
-					
-				} 
-			}
-		}
-	}
-}
-
-
-# reformat as factor with order
-allDF$cell_type = factor(allDF$cell_type, c("e125", "e145", "ISC", "Paneth",  "enterocyte", "ae"))
-allDF$mark = factor(allDF$mark, c("k4me3", "k27ac"))
-
-
-
-# Run the functions length, mean, and sd on the value of "change" for each group, 
-# broken down by sex + condition
-cdata <- ddply(allDF, c("mark", "cell_type", "mark_replicate", "group"), summarise,
-               N    = length(n),
-               mean = mean(n),
-               sd   = sd(n),
-               se   = sd / sqrt(N),
-               percent_mean = mean(percent),
-               percent_sd   = sd(percent),
-               percent_se   = percent_sd / sqrt(N),
-               mean_p = mean(p_val)
-)
-
- 
-g <- ggplot(cdata, aes(x=group, y=percent_mean, fill=cell_type)) + 
+#-----------------------------------------------------------------------
+# only introns
+yMax <- max(subset(overlapDF, type=="intron")[, "percent"])
+g <- ggplot(subset(overlapDF, type=="intron"), aes(x=event, y=percent, fill=cell_type)) + 
 	geom_bar(stat="identity", color="black") + 
-	geom_errorbar(aes(ymax = percent_mean + percent_sd, ymin=percent_mean - percent_sd), width=0.25) + 
-	geom_text(aes(label=signif(percent_mean,3)), vjust=-1.25) + 
-  geom_text(aes(x=1.5, label=ifelse(is.na(mean_p), "", paste0("p=", signif(mean_p,3)))), vjust=-2.5) + 
-  #~ 	geom_text(aes(label=paste("n=",round(mean,1)), y=0), angle=90) + 
-	ylim(0,1.4*max(cdata$percent_mean, na.rm=TRUE)) +
-	facet_grid(mark*mark_replicate~cell_type) + 
-	theme_bw() + scale_fill_manual(values=COL_CELL_TYPE) + 
-	xlab("Introns") + ylab("Introns overlapping chromatin mark [%]")
+	geom_text(aes(label=signif(percent,3)), vjust=-.75, size=3) + 
+#~ 	geom_text(aes(label=paste("N=", N), y=0), angle=90) + 
+	geom_text(data=subset(pvalDF, type=="intron"), aes(x=1.5, y=yMax, label=paste0("p=", signif(pval,3))), size=3, vjust=-2.5) + 
+	ylim(0,2*yMax) +
+#~ 	ylim(0,1.4*max(cdata$percent_mean, na.rm=TRUE)) +
+	facet_grid(mark*mark_replicate~cell_type*RNAseq_replicate) + 
+	theme_bw() + theme(text=element_text(size=9), axis.text.x = element_text(angle = 60, hjust = 1)) + 
+	scale_fill_manual(values=COL_CELL_TYPE) + 
+	xlab("Splicing event groups") + ylab("Overlap with chromatin mark [%]") + ggtitle("Introns")
 	
-ggsave(paste0(outPrefix, ".introns_overlapping_marks.barplot_percent.pdf"))
+ggsave(paste0(outPrefix, ".introns.percent_overlap.barplot_percent.pdf"), w=10.5, h=7)
 
 
-
-g <- ggplot(cdata, aes(x=group, y=mean, fill=cell_type)) + 
+#-----------------------------------------------------------------------
+# only exons
+yMax <- max(subset(overlapDF, type=="exon")[, "percent"])
+g <- ggplot(subset(overlapDF, type=="exon"), aes(x=event, y=percent, fill=cell_type)) + 
 	geom_bar(stat="identity", color="black") + 
-	geom_errorbar(aes(ymax = mean + sd, ymin=mean - sd), width=0.25) + 
-	geom_text(aes(label=round(mean,1)), vjust=-1.25) + 
-	ylim(0,1.2*max(cdata$mean, na.rm=TRUE)) +
-	facet_grid(mark*mark_replicate~cell_type) + 
-	theme_bw() + scale_fill_manual(values=COL_CELL_TYPE) + 
-	xlab("Introns") + ylab("Introns overlapping chromatin mark")
+	geom_text(aes(label=signif(percent,3)), vjust=-.75, size=3) + 
+#~ 	geom_text(aes(label=paste("N=", N), y=0), angle=90) + 
+	geom_text(data=subset(pvalDF, type=="exon"), aes(x=1.5, y=yMax, label=paste0("p=", signif(pval,3))), size=3, vjust=-2.5) + 
+	ylim(0,2*yMax) +
+#~ 	ylim(0,1.4*max(cdata$percent_mean, na.rm=TRUE)) +
+	facet_grid(mark*mark_replicate~cell_type*RNAseq_replicate) + 
+	theme_bw() + theme(text=element_text(size=9), axis.text.x = element_text(angle = 60, hjust = 1)) + 
+	scale_fill_manual(values=COL_CELL_TYPE) + 
+	xlab("Splicing event groups") + ylab("Overlap with chromatin mark [%]") + ggtitle("Exons")
 	
-ggsave(paste0(outPrefix, ".introns_overlapping_marks.barplot.pdf"))
+ggsave(paste0(outPrefix, ".exons.percent_overlap.barplot_percent.pdf"), w=10.5, h=7)
 
 
 
